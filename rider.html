@@ -25,10 +25,20 @@
   #liveState.sharing{background:#e8fbf1;color:#0f7a45}
   #liveState.error{background:#fdecec;color:#b3261e}
   .coords{font-size:.75rem;color:#667;margin-top:8px;text-align:center}
+  #gateCard label{margin-top:0}
 </style>
 </head>
 <body>
-  <div class="card">
+  <div class="card" id="gateCard">
+    <h1>🔒 Rider Access</h1>
+    <p class="sub">Enter the rider password to continue.</p>
+    <label for="gatePassword">Password</label>
+    <input id="gatePassword" type="password" placeholder="Enter password">
+    <button id="gateBtn" class="btn-start">Unlock</button>
+    <div id="gateError" style="display:none;margin-top:12px;padding:10px;border-radius:10px;background:#fdecec;color:#b3261e;font-size:.85rem;text-align:center">Incorrect password. Try again.</div>
+  </div>
+
+  <div class="card" id="riderCard" style="display:none">
     <h1>🚴 Rider Panel</h1>
     <p class="sub">Enter the order number, then start sharing your location. Keep this page open while you're moving.</p>
 
@@ -49,6 +59,40 @@
     <div id="liveState">Not sharing yet</div>
     <div class="coords" id="coords"></div>
   </div>
+
+  <script>
+    // ============================================================
+    // To change the rider password, edit the line below.
+    // ============================================================
+    const RIDER_PASSWORD = "logic2026";
+
+    const gateCard = document.getElementById('gateCard');
+    const riderCard = document.getElementById('riderCard');
+    const gateBtn = document.getElementById('gateBtn');
+    const gatePassword = document.getElementById('gatePassword');
+    const gateError = document.getElementById('gateError');
+
+    function unlock(){
+      gateCard.style.display = 'none';
+      riderCard.style.display = 'block';
+      sessionStorage.setItem('riderUnlocked', '1');
+    }
+
+    if(sessionStorage.getItem('riderUnlocked') === '1'){
+      unlock();
+    }
+
+    gateBtn.addEventListener('click', () => {
+      if(gatePassword.value === RIDER_PASSWORD){
+        unlock();
+      } else {
+        gateError.style.display = 'block';
+      }
+    });
+    gatePassword.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') gateBtn.click();
+    });
+  </script>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";

@@ -21,12 +21,26 @@
   #result button{background:var(--gold);color:#3a2a00;margin-top:10px}
   .list{margin-top:28px;width:100%;max-width:440px}
   .list h2{font-size:1rem;margin-bottom:10px}
-  .order-row{background:#fff;border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:.85rem;box-shadow:0 4px 10px -6px rgba(0,0,0,.1)}
+  .order-row{background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:0 4px 10px -6px rgba(0,0,0,.1)}
+  .order-row-top{display:flex;justify-content:space-between;align-items:center;font-size:.85rem;margin-bottom:8px}
   .order-row b{color:var(--blue-deep)}
   .badge{font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px;background:#eef4ff;color:var(--blue-deep)}
+  .status-mini{display:flex;gap:6px;flex-wrap:wrap}
+  .status-mini button{width:auto;padding:6px 10px;margin:0;font-size:.72rem;border-radius:8px;background:#f4f6fb;color:var(--ink);border:1px solid var(--line)}
+  .status-mini button.active{background:var(--gold);border-color:var(--gold);color:#3a2a00}
 </style>
 </head>
 <body>
+  <div class="card" id="gateCard">
+    <h1>🔒 Admin Access</h1>
+    <p class="sub">Enter the admin password to continue.</p>
+    <label for="gatePassword">Password</label>
+    <input id="gatePassword" type="password" placeholder="Enter password">
+    <button id="gateBtn">Unlock</button>
+    <div id="gateError" style="display:none;margin-top:12px;padding:10px;border-radius:10px;background:#fdecec;color:#b3261e;font-size:.85rem;text-align:center">Incorrect password. Try again.</div>
+  </div>
+
+  <div id="adminArea" style="display:none;width:100%;display:flex;flex-direction:column;align-items:center">
   <div class="card">
     <h1>🧾 Create New Order</h1>
     <p class="sub">Generates a tracking number to give the customer.</p>
@@ -47,6 +61,41 @@
     <h2>Recent Orders</h2>
     <div id="orderList"></div>
   </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // To change the admin password, edit the line below.
+    // ============================================================
+    const ADMIN_PASSWORD = "logic2026";
+
+    const gateCard = document.getElementById('gateCard');
+    const adminArea = document.getElementById('adminArea');
+    const gateBtn = document.getElementById('gateBtn');
+    const gatePassword = document.getElementById('gatePassword');
+    const gateError = document.getElementById('gateError');
+
+    function unlock(){
+      gateCard.style.display = 'none';
+      adminArea.style.display = 'flex';
+      sessionStorage.setItem('adminUnlocked', '1');
+    }
+
+    if(sessionStorage.getItem('adminUnlocked') === '1'){
+      unlock();
+    }
+
+    gateBtn.addEventListener('click', () => {
+      if(gatePassword.value === ADMIN_PASSWORD){
+        unlock();
+      } else {
+        gateError.style.display = 'block';
+      }
+    });
+    gatePassword.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') gateBtn.click();
+    });
+  </script>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -60,6 +109,7 @@
       placed: '📦 Placed', pickup: '🚴 En Route', washing: '🫧 Washing',
       ready: '👕 Ready', delivered: '🏠 Delivered'
     };
+    const STATUS_LIST = ['placed','pickup','washing','ready','delivered'];
 
     function genOrderId(){
       const n = Math.floor(1000 + Math.random() * 9000);
@@ -98,9 +148,33 @@
       listEl.innerHTML = '';
       snap.forEach(docSnap => {
         const o = docSnap.data();
+        const id = docSnap.id;
         const row = document.createElement('div');
         row.className = 'order-row';
-        row.innerHTML = `<span><b>${docSnap.id}</b> ${o.phone ? '· ' + o.phone : ''}</span><span class="badge">${STATUS_LABELS[o.status] || o.status || '—'}</span>`;
+
+        const top = document.createElement('div');
+        top.className = 'order-row-top';
+        top.innerHTML = `<span><b>${id}</b> ${o.phone ? '· ' + o.phone : ''}</span><span class="badge">${STATUS_LABELS[o.status] || o.status || '—'}</span>`;
+        row.appendChild(top);
+
+        const statusRow = document.createElement('div');
+        statusRow.className = 'status-mini';
+        STATUS_LIST.forEach(s => {
+          const btn = document.createElement('button');
+          btn.textContent = STATUS_LABELS[s];
+          btn.type = 'button';
+          if(o.status === s) btn.classList.add('active');
+          btn.addEventListener('click', async () => {
+            try {
+              await setDoc(doc(db, 'orders', id), { status: s, statusUpdatedAt: serverTimestamp() }, { merge: true });
+            } catch (e) {
+              alert('Could not update status: ' + e.message);
+            }
+          });
+          statusRow.appendChild(btn);
+        });
+        row.appendChild(statusRow);
+
         listEl.appendChild(row);
       });
     });

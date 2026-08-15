@@ -9,6 +9,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .track-step.done .dot{background:var(--good,#1fae6b);color:#fff;box-shadow:0 0 0 4px rgba(31,174,107,.18)}
+  .track-step.current .dot{background:var(--gold);color:#3a2a00;box-shadow:0 0 0 4px rgba(246,181,27,.25)}
+</style>
 <style>
   :root{
     --ink:#122548;
@@ -444,6 +449,12 @@
       </div>
 
       <button type="submit" class="btn btn-primary">Confirm Order via WhatsApp</button>
+
+      <div id="orderConfirm" style="display:none;margin-top:16px;padding:14px 16px;border-radius:12px;background:#eef4ff;text-align:center">
+        <div style="font-size:.85rem;color:#3c526e;font-weight:600">Your Tracking Number</div>
+        <div id="orderConfirmNum" style="font-size:1.3rem;font-weight:800;color:var(--blue-deep);margin:4px 0"></div>
+        <div style="font-size:.78rem;color:#667">Save this number to track your order below, or in the WhatsApp message that just opened.</div>
+      </div>
     </form>
   </div>
 </section>
@@ -555,18 +566,28 @@
     <h2>Know Where Your<br>Clothes Are. Always.</h2>
     <p class="swahili">"Nguo zako ziko wapi? Tutakuambia"</p>
 
-    <div class="track-steps">
-      <div class="track-step"><div class="dot">📦</div><span>Order Placed</span></div>
-      <div class="track-step"><div class="dot">🚴</div><span>Pickup En Route</span></div>
-      <div class="track-step"><div class="dot">🫧</div><span>Being Washed</span></div>
-      <div class="track-step"><div class="dot">👕</div><span>Ready</span></div>
-      <div class="track-step"><div class="dot">🏠</div><span>Delivered</span></div>
+    <div class="track-steps" id="trackSteps">
+      <div class="track-step" data-step="placed"><div class="dot">📦</div><span>Order Placed</span></div>
+      <div class="track-step" data-step="pickup"><div class="dot">🚴</div><span>Pickup En Route</span></div>
+      <div class="track-step" data-step="washing"><div class="dot">🫧</div><span>Being Washed</span></div>
+      <div class="track-step" data-step="ready"><div class="dot">👕</div><span>Ready</span></div>
+      <div class="track-step" data-step="delivered"><div class="dot">🏠</div><span>Delivered</span></div>
     </div>
 
     <div class="track-panel">
       <div>
         <h4>Real-Time Tracking</h4>
-        <p style="color:#516884;font-size:.9rem">Full GPS order tracking is launching soon. You'll see exactly where your rider is, when your wash started, and get notified the moment your order is ready.</p>
+        <p style="color:#516884;font-size:.9rem;margin-bottom:14px">Enter your order number below to see live status and your rider's location on the map.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <input id="trackInput" placeholder="e.g. LL-1023" style="flex:1;min-width:160px;padding:12px 14px;border:2px solid var(--line);border-radius:10px;font-size:.95rem;text-transform:uppercase">
+          <button id="trackBtn" class="btn btn-primary" type="button" style="padding:12px 24px">Track Order</button>
+        </div>
+        <div id="trackResult" style="display:none;margin-top:14px;font-size:.88rem;color:#3c526e">
+          <p id="trackStatusLine" style="font-weight:700;color:var(--blue-deep);margin-bottom:10px"></p>
+          <div id="trackMap" style="height:260px;border-radius:12px;overflow:hidden;display:none;margin-bottom:10px"></div>
+          <p id="trackNoLoc" style="display:none;color:#8a97a8">Rider location not shared yet.</p>
+        </div>
+        <div id="trackError" style="display:none;margin-top:14px;font-size:.88rem;color:#b3261e;font-weight:600"></div>
         <div class="marks">
           <span>📍 Live rider location</span>
           <span>📱 WhatsApp status updates</span>
@@ -758,6 +779,7 @@
     navigator.geolocation.getCurrentPosition(
       pos => {
         lastLocation = pos.coords;
+        window.lastLocation = pos.coords;
         geoStatus.textContent = `📍 Location captured (±${Math.round(pos.coords.accuracy)}m accuracy)`;
       },
       () => {
@@ -766,7 +788,7 @@
     );
   });
 
-  // Quote form -> WhatsApp handoff
+  // Quote form -> create order + WhatsApp handoff
   document.getElementById('quoteForm').addEventListener('submit', function(e){
     e.preventDefault();
     const name = document.getElementById('q-name').value;
@@ -779,7 +801,14 @@
     const notes = document.getElementById('q-notes').value;
     const loc = lastLocation ? `https://maps.google.com/?q=${lastLocation.latitude},${lastLocation.longitude}` : 'Not shared';
 
-    const msg = `Hi Logic Laundry! I'd like to book a pickup.
+    // Ask the module script (Firebase) to create the order, then continue via callback
+    window.createOrderAndProceed({
+      name, phone, service, kg, cost, date, time, notes,
+      lat: lastLocation ? lastLocation.latitude : null,
+      lng: lastLocation ? lastLocation.longitude : null
+    }, (orderId) => {
+      const msg = `Hi Logic Laundry! I'd like to book a pickup.
+Order #: ${orderId}
 Name: ${name}
 Phone: ${phone}
 Service: ${service}
@@ -788,7 +817,8 @@ Pickup: ${date} ${time}
 Location: ${loc}
 Notes: ${notes || '—'}`;
 
-    window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
+      window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
+    });
   });
 
   // Contact form -> WhatsApp handoff
@@ -805,6 +835,137 @@ Service interested in: ${service || '—'}
 Message: ${message || '—'}`;
 
     window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
+  });
+</script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { firebaseConfig } from "./firebase-config.js";
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  function genOrderId(){
+    const n = Math.floor(1000 + Math.random() * 9000);
+    return 'LL-' + n;
+  }
+
+  // Called by the quote form's submit handler to auto-create an order
+  window.createOrderAndProceed = async function(details, callback){
+    const id = genOrderId();
+    try {
+      const data = {
+        name: details.name || null,
+        phone: details.phone || null,
+        service: details.service || null,
+        weightKg: details.kg || null,
+        estCost: details.cost || null,
+        pickupDate: details.date || null,
+        pickupTime: details.time || null,
+        notes: details.notes || null,
+        status: 'placed',
+        createdAt: serverTimestamp(),
+        statusUpdatedAt: serverTimestamp()
+      };
+      if(typeof details.lat === 'number' && typeof details.lng === 'number'){
+        data.lat = details.lat;
+        data.lng = details.lng;
+        data.lastLocationAt = serverTimestamp();
+      }
+      await setDoc(doc(db, 'orders', id), data);
+
+      const confirmBox = document.getElementById('orderConfirm');
+      const confirmNum = document.getElementById('orderConfirmNum');
+      if(confirmBox && confirmNum){
+        confirmNum.textContent = id;
+        confirmBox.style.display = 'block';
+      }
+    } catch (e) {
+      console.error('Could not create order:', e);
+      // Still let the customer proceed to WhatsApp even if saving failed
+    }
+    callback(id);
+  };
+
+  const STATUS_ORDER = ['placed','pickup','washing','ready','delivered'];
+  const STATUS_TEXT = {
+    placed: 'Order placed — waiting for pickup',
+    pickup: 'Rider is on the way to pick up your order',
+    washing: 'Your clothes are being washed',
+    ready: 'Your order is ready',
+    delivered: 'Delivered — thank you!'
+  };
+
+  let map = null, marker = null, unsub = null;
+
+  function highlightSteps(status){
+    const idx = STATUS_ORDER.indexOf(status);
+    document.querySelectorAll('#trackSteps .track-step').forEach(el => {
+      const stepIdx = STATUS_ORDER.indexOf(el.dataset.step);
+      el.classList.remove('done','current');
+      if(idx < 0) return;
+      if(stepIdx < idx) el.classList.add('done');
+      if(stepIdx === idx) el.classList.add('current');
+    });
+  }
+
+  function showMap(lat, lng){
+    const mapEl = document.getElementById('trackMap');
+    mapEl.style.display = 'block';
+    document.getElementById('trackNoLoc').style.display = 'none';
+    if(!map){
+      map = L.map('trackMap').setView([lat, lng], 15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      marker = L.marker([lat, lng]).addTo(map);
+    } else {
+      map.setView([lat, lng]);
+      marker.setLatLng([lat, lng]);
+    }
+    setTimeout(() => map.invalidateSize(), 100);
+  }
+
+  function hideMap(){
+    document.getElementById('trackMap').style.display = 'none';
+    document.getElementById('trackNoLoc').style.display = 'block';
+  }
+
+  function track(){
+    const id = document.getElementById('trackInput').value.trim().toUpperCase();
+    const errorEl = document.getElementById('trackError');
+    const resultEl = document.getElementById('trackResult');
+    errorEl.style.display = 'none';
+    if(!id){ errorEl.textContent = 'Please enter your order number.'; errorEl.style.display = 'block'; return; }
+
+    if(unsub) unsub();
+    unsub = onSnapshot(doc(db, 'orders', id), (snap) => {
+      if(!snap.exists()){
+        resultEl.style.display = 'none';
+        errorEl.textContent = "We couldn't find that order number. Please check and try again.";
+        errorEl.style.display = 'block';
+        return;
+      }
+      const o = snap.data();
+      resultEl.style.display = 'block';
+      document.getElementById('trackStatusLine').textContent = STATUS_TEXT[o.status] || 'Status pending';
+      highlightSteps(o.status);
+      if(typeof o.lat === 'number' && typeof o.lng === 'number'){
+        showMap(o.lat, o.lng);
+      } else {
+        hideMap();
+      }
+    }, (err) => {
+      errorEl.textContent = 'Error loading order: ' + err.message;
+      errorEl.style.display = 'block';
+    });
+  }
+
+  document.getElementById('trackBtn').addEventListener('click', track);
+  document.getElementById('trackInput').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter') track();
   });
 </script>
 

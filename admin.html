@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin – Create Order – Logic Laundry Services</title>
+<style>
+  :root{--blue:#0B4FA8;--blue-deep:#083a80;--gold:#F6B51B;--ink:#122548;--line:#e3e0d3}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f4f6fb;color:var(--ink);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px}
+  .card{background:#fff;border-radius:16px;box-shadow:0 12px 30px -12px rgba(11,79,168,.25);padding:28px 24px;max-width:440px;width:100%}
+  h1{font-size:1.3rem;margin-bottom:4px}
+  p.sub{color:#556;font-size:.9rem;margin-bottom:20px}
+  label{display:block;font-size:.85rem;font-weight:700;margin:14px 0 6px}
+  input{width:100%;padding:12px 14px;border:2px solid var(--line);border-radius:10px;font-size:1rem}
+  input:focus{outline:none;border-color:var(--blue)}
+  button{width:100%;padding:14px;border:none;border-radius:999px;font-weight:700;font-size:1rem;margin-top:18px;cursor:pointer;background:var(--blue);color:#fff}
+  #result{margin-top:20px;padding:16px;border-radius:12px;background:#eef4ff;display:none;text-align:center}
+  #result.show{display:block}
+  #result .num{font-size:1.4rem;font-weight:800;color:var(--blue-deep);margin:6px 0}
+  #result button{background:var(--gold);color:#3a2a00;margin-top:10px}
+  .list{margin-top:28px;width:100%;max-width:440px}
+  .list h2{font-size:1rem;margin-bottom:10px}
+  .order-row{background:#fff;border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:.85rem;box-shadow:0 4px 10px -6px rgba(0,0,0,.1)}
+  .order-row b{color:var(--blue-deep)}
+  .badge{font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px;background:#eef4ff;color:var(--blue-deep)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🧾 Create New Order</h1>
+    <p class="sub">Generates a tracking number to give the customer.</p>
+
+    <label for="phone">Customer Phone (optional)</label>
+    <input id="phone" placeholder="e.g. 0715 617 654">
+
+    <button id="createBtn">Generate Order Number</button>
+
+    <div id="result">
+      <div>Tracking Number</div>
+      <div class="num" id="orderNum"></div>
+      <button id="copyBtn">Copy</button>
+    </div>
+  </div>
+
+  <div class="list">
+    <h2>Recent Orders</h2>
+    <div id="orderList"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, doc, setDoc, serverTimestamp, collection, query, orderBy, limit, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { firebaseConfig } from "./firebase-config.js";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const STATUS_LABELS = {
+      placed: '📦 Placed', pickup: '🚴 En Route', washing: '🫧 Washing',
+      ready: '👕 Ready', delivered: '🏠 Delivered'
+    };
+
+    function genOrderId(){
+      const n = Math.floor(1000 + Math.random() * 9000);
+      return 'LL-' + n;
+    }
+
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      const phone = document.getElementById('phone').value.trim();
+      const id = genOrderId();
+      try {
+        await setDoc(doc(db, 'orders', id), {
+          phone: phone || null,
+          status: 'placed',
+          createdAt: serverTimestamp(),
+          statusUpdatedAt: serverTimestamp()
+        });
+        document.getElementById('orderNum').textContent = id;
+        document.getElementById('result').classList.add('show');
+        document.getElementById('phone').value = '';
+      } catch (e) {
+        alert('Could not create order: ' + e.message);
+      }
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const num = document.getElementById('orderNum').textContent;
+      navigator.clipboard.writeText(num);
+      document.getElementById('copyBtn').textContent = 'Copied!';
+      setTimeout(() => document.getElementById('copyBtn').textContent = 'Copy', 1500);
+    });
+
+    // Live list of recent orders
+    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(15));
+    onSnapshot(q, (snap) => {
+      const listEl = document.getElementById('orderList');
+      listEl.innerHTML = '';
+      snap.forEach(docSnap => {
+        const o = docSnap.data();
+        const row = document.createElement('div');
+        row.className = 'order-row';
+        row.innerHTML = `<span><b>${docSnap.id}</b> ${o.phone ? '· ' + o.phone : ''}</span><span class="badge">${STATUS_LABELS[o.status] || o.status || '—'}</span>`;
+        listEl.appendChild(row);
+      });
+    });
+  </script>
+</body>
+</html>

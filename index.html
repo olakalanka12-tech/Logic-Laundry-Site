@@ -828,6 +828,11 @@ Location: ${loc}
 Notes: ${notes || '—'}`;
 
       window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
+
+      // Auto-trigger the M-Pesa STK push for the confirmed order
+      const mpesaPhoneEl = document.getElementById('mpesaPhone');
+      if (mpesaPhoneEl && !mpesaPhoneEl.value) mpesaPhoneEl.value = phone;
+      sendStkPush(phone, cost, orderId);
     });
   });
 
@@ -848,42 +853,48 @@ Message: ${message || '—'}`;
   });
 
   // M-Pesa STK Push (Daraja / Lipa na M-Pesa Online)
+  async function sendStkPush(phone, amount, reference) {
+    const statusEl = document.getElementById('mpesaStatus');
+    const mpesaBtn = document.getElementById('mpesaPayBtn');
+    phone = (phone || '').trim();
+    amount = parseInt(amount, 10) || 0;
+
+    if (!statusEl) return;
+    if (!phone) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Please enter your M-Pesa number.'; return; }
+    if (amount < 1) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Choose a service and weight to calculate an amount first.'; return; }
+
+    if (mpesaBtn) mpesaBtn.disabled = true;
+    statusEl.style.color = '#3c526e';
+    statusEl.textContent = 'Sending an STK push to your phone…';
+
+    try {
+      const res = await fetch('/api/mpesa/stkpush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone,
+          amount,
+          accountReference: reference || 'LogicLaundry',
+          description: 'Laundry payment'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Payment request failed. Please try again.');
+      statusEl.style.color = '#1fae6b';
+      statusEl.textContent = data.CustomerMessage || 'Check your phone and enter your M-Pesa PIN to complete payment.';
+    } catch (err) {
+      statusEl.style.color = '#b3261e';
+      statusEl.textContent = err.message;
+    } finally {
+      if (mpesaBtn) mpesaBtn.disabled = false;
+    }
+  }
+
   const mpesaBtn = document.getElementById('mpesaPayBtn');
   if (mpesaBtn) {
-    mpesaBtn.addEventListener('click', async () => {
-      const statusEl = document.getElementById('mpesaStatus');
-      const phoneEl = document.getElementById('mpesaPhone');
-      const phone = (phoneEl.value || document.getElementById('q-phone').value || '').trim();
-      const amount = parseInt(wCost.textContent, 10) || 0;
-
-      if (!phone) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Please enter your M-Pesa number.'; return; }
-      if (amount < 1) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Choose a service and weight to calculate an amount first.'; return; }
-
-      mpesaBtn.disabled = true;
-      statusEl.style.color = '#3c526e';
-      statusEl.textContent = 'Sending an STK push to your phone…';
-
-      try {
-        const res = await fetch('/api/mpesa/stkpush', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone,
-            amount,
-            accountReference: document.getElementById('orderConfirmNum').textContent || 'LogicLaundry',
-            description: 'Laundry payment'
-          })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Payment request failed. Please try again.');
-        statusEl.style.color = '#1fae6b';
-        statusEl.textContent = data.CustomerMessage || 'Check your phone and enter your M-Pesa PIN to complete payment.';
-      } catch (err) {
-        statusEl.style.color = '#b3261e';
-        statusEl.textContent = err.message;
-      } finally {
-        mpesaBtn.disabled = false;
-      }
+    mpesaBtn.addEventListener('click', () => {
+      const phone = document.getElementById('mpesaPhone').value || document.getElementById('q-phone').value || '';
+      sendStkPush(phone, wCost.textContent, document.getElementById('orderConfirmNum').textContent);
     });
   }
 </script>

@@ -133,3 +133,46 @@ export async function initiateSTKPush({
   }
   return data
 }
+
+// Query the status of a previously initiated STK Push. Used by the client to
+// poll for a completed (or failed) payment when no public callback URL is
+// reachable (e.g. in the preview/sandbox).
+export async function querySTKStatus({ checkoutRequestId } = {}) {
+  const cfg = getConfig()
+  if (!checkoutRequestId) {
+    throw new Error("Missing checkoutRequestId.")
+  }
+
+  const token = await getAccessToken()
+  const ts = timestamp()
+  const password = Buffer.from(
+    `${cfg.shortcode}${cfg.passkey}${ts}`,
+  ).toString("base64")
+
+  const res = await fetch(`${cfg.base}/mpesa/stkpushquery/v1/query`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      BusinessShortCode: cfg.shortcode,
+      Password: password,
+      Timestamp: ts,
+      CheckoutRequestID: checkoutRequestId,
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  // While the customer hasn't acted yet Safaricom returns a 500 with
+  // errorCode 500.001.1001 ("transaction is being processed"). Surface that
+  // as a "pending" state rather than an error so the client can keep polling.
+  if (!res.ok) {
+    if (data.errorCode === "500.001.1001") {
+      return { pending: true, ResultCode: null, ResultDesc: "Processing" }
+    }
+    throw new Error(
+      data.errorMessage || `STK query failed (${res.status}).`,
+    )
+  }
+  return data
+}

@@ -1,7 +1,7 @@
 // Vite dev-server plugin that exposes the M-Pesa API routes during preview,
 // mirroring the Vercel serverless functions in /api. This lets the STK Push
 // flow work in the v0 preview without a separate backend process.
-import { initiateSTKPush } from "./server/mpesa.js"
+import { initiateSTKPush, querySTKStatus } from "./server/mpesa.js"
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -37,6 +37,17 @@ export function mpesaPlugin() {
           try {
             const body = await readJson(req)
             const data = await initiateSTKPush(body)
+            return sendJson(res, 200, data)
+          } catch (err) {
+            return sendJson(res, 400, { error: err.message })
+          }
+        }
+
+        if (path === "/api/mpesa/stkquery") {
+          if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+          try {
+            const body = await readJson(req)
+            const data = await querySTKStatus(body)
             return sendJson(res, 200, data)
           } catch (err) {
             return sendJson(res, 400, { error: err.message })

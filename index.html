@@ -818,17 +818,9 @@
       lat: lastLocation ? lastLocation.latitude : null,
       lng: lastLocation ? lastLocation.longitude : null
     }, (orderId) => {
-      // WhatsApp handoff (disabled — replaced by M-Pesa STK push initiator)
-      // const msg = `Hi Logic Laundry! I'd like to book a pickup.
-      // Order #: ${orderId}
-      // Name: ${name}
-      // Phone: ${phone}
-      // Service: ${service}
-      // Est. weight: ${kg}kg (≈KSH ${cost})
-      // Pickup: ${date} ${time}
-      // Location: ${loc}
-      // Notes: ${notes || '—'}`;
-      // window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
+      // Keep the order details around so the receipt + WhatsApp confirmation
+      // (shown after a successful payment) can use them.
+      lastOrder = { orderId, name, phone, service, kg, cost, date, time, notes, loc };
 
       // Trigger the M-Pesa STK push for the confirmed order
       const mpesaPhoneEl = document.getElementById('mpesaPhone');
@@ -853,16 +845,24 @@ Message: ${message || '—'}`;
     window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
   });
 
+  // Order details captured on submit, reused by the receipt + WhatsApp confirmation.
+  let lastOrder = null;
+
+  // TESTING: the STK push only ever charges KSH 1 while the displayed amount
+  // stays the real estimate. Set to null to charge the real amount.
+  const STK_TEST_AMOUNT = 1;
+
   // M-Pesa STK Push (Daraja / Lipa na M-Pesa Online)
   async function sendStkPush(phone, amount, reference) {
     const statusEl = document.getElementById('mpesaStatus');
     const mpesaBtn = document.getElementById('mpesaPayBtn');
     phone = (phone || '').trim();
-    amount = parseInt(amount, 10) || 0;
+    const displayAmount = parseInt(amount, 10) || 0;
+    const chargeAmount = STK_TEST_AMOUNT != null ? STK_TEST_AMOUNT : displayAmount;
 
     if (!statusEl) return;
     if (!phone) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Please enter your M-Pesa number.'; return; }
-    if (amount < 1) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Choose a service and weight to calculate an amount first.'; return; }
+    if (displayAmount < 1) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Choose a service and weight to calculate an amount first.'; return; }
 
     if (mpesaBtn) mpesaBtn.disabled = true;
     statusEl.style.color = '#3c526e';
@@ -874,20 +874,114 @@ Message: ${message || '—'}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone,
-          amount,
+          amount: chargeAmount,
           accountReference: reference || 'LogicLaundry',
           description: 'Laundry payment'
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Payment request failed. Please try again.');
-      statusEl.style.color = '#1fae6b';
-      statusEl.textContent = data.CustomerMessage || 'Check your phone and enter your M-Pesa PIN to complete payment.';
+      statusEl.style.color = '#3c526e';
+      statusEl.textContent = data.CustomerMessage || 'Check your phone and enter your M-Pesa PIN to complete payment…';
+      // Poll for the payment result, then swap the card to a paid receipt.
+      pollPaymentStatus(data.CheckoutRequestID, statusEl, mpesaBtn);
     } catch (err) {
       statusEl.style.color = '#b3261e';
       statusEl.textContent = err.message;
-    } finally {
       if (mpesaBtn) mpesaBtn.disabled = false;
+    }
+  }
+
+  // Poll the STK query endpoint until the customer completes or cancels.
+  async function pollPaymentStatus(checkoutRequestId, statusEl, mpesaBtn) {
+    if (!checkoutRequestId) { if (mpesaBtn) mpesaBtn.disabled = false; return; }
+    const maxAttempts = 24;   // ~2 minutes at 5s intervals
+    let attempt = 0;
+
+    const tick = async () => {
+      attempt++;
+      try {
+        const res = await fetch('/api/mpesa/stkquery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checkoutRequestId })
+        });
+        const data = await res.json();
+
+        if (data && data.pending) {
+          statusEl.style.color = '#3c526e';
+          statusEl.textContent = 'Waiting for you to enter your M-Pesa PIN…';
+        } else if (data && String(data.ResultCode) === '0') {
+          statusEl.style.color = '#1fae6b';
+          statusEl.textContent = 'Payment received. Thank you!';
+          if (mpesaBtn) mpesaBtn.disabled = false;
+          showReceipt();
+          return;
+        } else if (data && data.ResultCode != null) {
+          statusEl.style.color = '#b3261e';
+          statusEl.textContent = data.ResultDesc || 'Payment was not completed. You can try again.';
+          if (mpesaBtn) mpesaBtn.disabled = false;
+          return;
+        }
+      } catch (err) {
+        // transient — keep polling
+      }
+
+      if (attempt >= maxAttempts) {
+        statusEl.style.color = '#b3261e';
+        statusEl.textContent = 'Timed out waiting for payment. If you paid, contact us on WhatsApp.';
+        if (mpesaBtn) mpesaBtn.disabled = false;
+        return;
+      }
+      setTimeout(tick, 5000);
+    };
+
+    setTimeout(tick, 5000);
+  }
+
+  // Swap the quote/confirm card into a paid receipt with a WhatsApp confirm button.
+  function showReceipt() {
+    const box = document.getElementById('orderConfirm');
+    if (!box || !lastOrder) return;
+    const o = lastOrder;
+    const paidAt = new Date().toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' });
+
+    box.style.background = '#e9f9f1';
+    box.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px">
+        <span style="display:inline-flex;width:26px;height:26px;border-radius:50%;background:#1fae6b;color:#fff;align-items:center;justify-content:center;font-weight:800">✓</span>
+        <span style="font-size:1.05rem;font-weight:800;color:#127a4b">Payment Received</span>
+      </div>
+      <div style="font-size:.8rem;color:#3c526e;margin-bottom:12px">Order #${o.orderId} · ${paidAt}</div>
+      <div style="text-align:left;background:#fff;border-radius:12px;padding:14px 16px;border:1px solid #cdeede">
+        <div style="font-weight:800;color:var(--blue-deep);margin-bottom:8px;text-align:center;letter-spacing:.5px">LOGIC LAUNDRY · RECEIPT</div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#667">Name</span><strong>${o.name || '—'}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#667">Phone</span><strong>${o.phone || '—'}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#667">Service</span><strong>${o.service || '—'}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#667">Weight</span><strong>${o.kg || '—'} kg</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#667">Pickup</span><strong>${[o.date, o.time].filter(Boolean).join(' · ') || '—'}</strong></div>
+        <div style="border-top:1px dashed #cdeede;margin:8px 0"></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:1.05rem"><span style="color:#127a4b;font-weight:700">Amount</span><strong style="color:#127a4b">KSH ${o.cost}</strong></div>
+      </div>
+      <button type="button" class="btn btn-primary" id="waConfirmBtn" style="width:100%;justify-content:center;margin-top:14px">
+        Send Confirmation via WhatsApp
+      </button>
+    `;
+
+    const waBtn = document.getElementById('waConfirmBtn');
+    if (waBtn) {
+      waBtn.addEventListener('click', () => {
+        const msg = `Hi Logic Laundry! Payment confirmed, I'd like to book a pickup.
+Order #: ${o.orderId}
+Name: ${o.name}
+Phone: ${o.phone}
+Service: ${o.service}
+Est. weight: ${o.kg}kg (KSH ${o.cost}) — PAID
+Pickup: ${o.date} ${o.time}
+Location: ${o.loc}
+Notes: ${o.notes || '—'}`;
+        window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
+      });
     }
   }
 

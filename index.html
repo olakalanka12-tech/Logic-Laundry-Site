@@ -453,6 +453,15 @@
         <div style="font-size:.85rem;color:#3c526e;font-weight:600">Your Tracking Number</div>
         <div id="orderConfirmNum" style="font-size:1.3rem;font-weight:800;color:var(--blue-deep);margin:4px 0"></div>
         <div style="font-size:.78rem;color:#667">Save this number to track your order below, or in the WhatsApp message that just opened.</div>
+
+        <div id="mpesaPay" style="margin-top:16px;padding-top:16px;border-top:1px solid #d7e2f7;text-align:left">
+          <label for="mpesaPhone" style="margin-top:0">Pay with M-Pesa</label>
+          <input id="mpesaPhone" type="tel" placeholder="07XX XXX XXX" autocomplete="tel">
+          <button type="button" class="btn btn-accent" id="mpesaPayBtn" style="width:100%;justify-content:center;margin-top:10px">
+            Pay KSH <span id="mpesaAmt">0</span> via M-Pesa
+          </button>
+          <p id="mpesaStatus" style="font-size:.82rem;margin-top:8px;color:#3c526e"></p>
+        </div>
       </div>
     </form>
   </div>
@@ -752,6 +761,8 @@
     const cost = Math.round(kg * rate);
     wKg.textContent = kg;
     wCost.textContent = cost;
+    const mpesaAmtEl = document.getElementById('mpesaAmt');
+    if (mpesaAmtEl) mpesaAmtEl.textContent = cost;
     sumCost.textContent = 'KSH ' + cost;
     sumService.textContent = serviceSelect.value || '—';
     const pickup = [dateInput.value, timeSelect.value].filter(Boolean).join(' · ');
@@ -835,6 +846,46 @@ Message: ${message || '—'}`;
 
     window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
   });
+
+  // M-Pesa STK Push (Daraja / Lipa na M-Pesa Online)
+  const mpesaBtn = document.getElementById('mpesaPayBtn');
+  if (mpesaBtn) {
+    mpesaBtn.addEventListener('click', async () => {
+      const statusEl = document.getElementById('mpesaStatus');
+      const phoneEl = document.getElementById('mpesaPhone');
+      const phone = (phoneEl.value || document.getElementById('q-phone').value || '').trim();
+      const amount = parseInt(wCost.textContent, 10) || 0;
+
+      if (!phone) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Please enter your M-Pesa number.'; return; }
+      if (amount < 1) { statusEl.style.color = '#b3261e'; statusEl.textContent = 'Choose a service and weight to calculate an amount first.'; return; }
+
+      mpesaBtn.disabled = true;
+      statusEl.style.color = '#3c526e';
+      statusEl.textContent = 'Sending an STK push to your phone…';
+
+      try {
+        const res = await fetch('/api/mpesa/stkpush', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone,
+            amount,
+            accountReference: document.getElementById('orderConfirmNum').textContent || 'LogicLaundry',
+            description: 'Laundry payment'
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Payment request failed. Please try again.');
+        statusEl.style.color = '#1fae6b';
+        statusEl.textContent = data.CustomerMessage || 'Check your phone and enter your M-Pesa PIN to complete payment.';
+      } catch (err) {
+        statusEl.style.color = '#b3261e';
+        statusEl.textContent = err.message;
+      } finally {
+        mpesaBtn.disabled = false;
+      }
+    });
+  }
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

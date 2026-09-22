@@ -447,7 +447,8 @@
         <div>Estimated Cost: <strong id="sumCost">—</strong></div>
       </div>
 
-      <button type="submit" class="btn btn-primary">Confirm Order via WhatsApp</button>
+      <!-- <button type="submit" class="btn btn-primary">Confirm Order via WhatsApp</button> -->
+      <button type="submit" class="btn btn-primary">Confirm Order &amp; Pay via M-Pesa</button>
 
       <div id="orderConfirm" style="display:none;margin-top:16px;padding:14px 16px;border-radius:12px;background:#eef4ff;text-align:center">
         <div style="font-size:.85rem;color:#3c526e;font-weight:600">Your Tracking Number</div>
@@ -798,7 +799,7 @@
     );
   });
 
-  // Quote form -> create order + WhatsApp handoff
+  // Quote form -> create order + M-Pesa STK push
   document.getElementById('quoteForm').addEventListener('submit', function(e){
     e.preventDefault();
     const name = document.getElementById('q-name').value;
@@ -817,19 +818,19 @@
       lat: lastLocation ? lastLocation.latitude : null,
       lng: lastLocation ? lastLocation.longitude : null
     }, (orderId) => {
-      const msg = `Hi Logic Laundry! I'd like to book a pickup.
-Order #: ${orderId}
-Name: ${name}
-Phone: ${phone}
-Service: ${service}
-Est. weight: ${kg}kg (≈KSH ${cost})
-Pickup: ${date} ${time}
-Location: ${loc}
-Notes: ${notes || '—'}`;
+      // WhatsApp handoff (disabled — replaced by M-Pesa STK push initiator)
+      // const msg = `Hi Logic Laundry! I'd like to book a pickup.
+      // Order #: ${orderId}
+      // Name: ${name}
+      // Phone: ${phone}
+      // Service: ${service}
+      // Est. weight: ${kg}kg (≈KSH ${cost})
+      // Pickup: ${date} ${time}
+      // Location: ${loc}
+      // Notes: ${notes || '—'}`;
+      // window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
 
-      window.open('https://wa.me/254715617654?text=' + encodeURIComponent(msg), '_blank');
-
-      // Auto-trigger the M-Pesa STK push for the confirmed order
+      // Trigger the M-Pesa STK push for the confirmed order
       const mpesaPhoneEl = document.getElementById('mpesaPhone');
       if (mpesaPhoneEl && !mpesaPhoneEl.value) mpesaPhoneEl.value = phone;
       sendStkPush(phone, cost, orderId);
